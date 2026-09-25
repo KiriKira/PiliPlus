@@ -151,3 +151,31 @@ jobs:
           archive: false
           name: PiliPlus-foldable-danmaku-x86_64
           path: PiliPlus_foldable_danmaku_*_x86_64.apk
+
+      - name: Publish GitHub Release
+        if: github.event_name != 'schedule' && (github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[release]'))
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="foldable-danmaku-${version}"
+          title_version="${version%%+*}"
+          notes=$(cat <<'EOF'
+          Custom PiliPlus build based on upstream 2.1.5.
+
+          - Foldable / large-screen fullscreen playback: scrolling danmaku is shifted below the front-camera display cutout.
+          - Static / centered danmaku keeps its original position.
+          - APKs use the fork's persistent signing key and downgrade-friendly version code.
+          EOF
+          )
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" PiliPlus_foldable_danmaku_*.apk --clobber
+          else
+            gh release create "$tag" \
+              PiliPlus_foldable_danmaku_*.apk \
+              --target "$GITHUB_SHA" \
+              --title "PiliPlus ${title_version} Foldable Danmaku" \
+              --notes "$notes"
+          fi
