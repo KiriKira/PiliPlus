@@ -5,7 +5,11 @@ param(
 try {
     $versionName = $null
 
-    $versionCode = [int](git rev-list --count HEAD).Trim()
+    $versionCode = if ($env:PILI_VERSION_CODE) {
+        [int]$env:PILI_VERSION_CODE
+    } else {
+        [int](git rev-list --count HEAD).Trim()
+    }
 
     $commitHash = (git rev-parse HEAD).Trim()
 

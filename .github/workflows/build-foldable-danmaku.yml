@@ -1,0 +1,153 @@
+name: Build Foldable Danmaku
+
+on:
+  push:
+    branches:
+      - feature/foldable-danmaku-camera-avoidance
+    paths-ignore:
+      - android/custom-signing.sha256
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * 3"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: foldable-danmaku-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PILI_VERSION_CODE: "2100000000"
+
+jobs:
+  android:
+    name: Signed Android APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: zulu
+          java-version: "17"
+          cache: gradle
+          cache-dependency-path: |
+            android/*.gradle*
+            android/**/gradle-wrapper.properties
+
+      - name: Restore persistent signing key
+        id: signing-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: piliplus-kirikira-signing-v1
+
+      - name: Prepare and verify signing key
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.android"
+
+          if [ "${{ steps.signing-cache.outputs.cache-hit }}" != "true" ]; then
+            keytool -genkeypair               -keystore "$HOME/.android/debug.keystore"               -storepass android               -alias androiddebugkey               -keypass android               -dname "CN=PiliPlus Custom Build, O=KiriKira, C=JP"               -keyalg RSA               -keysize 2048               -validity 36500
+          fi
+
+          fingerprint="$(keytool -list -v             -keystore "$HOME/.android/debug.keystore"             -storepass android             -alias androiddebugkey |
+            sed -n 's/^[[:space:]]*SHA256: //p' | head -n 1)"
+
+          expected="$(tr -d '\r\n' < android/custom-signing.sha256)"
+          if [ "$expected" != "UNINITIALIZED" ] && [ "$expected" != "$fingerprint" ]; then
+            echo "::error::Signing key fingerprint changed. Refusing to build an APK with a new signature."
+            echo "Expected: $expected"
+            echo "Actual:   $fingerprint"
+            exit 1
+          fi
+
+          echo "SIGNING_FINGERPRINT=$fingerprint" >> "$GITHUB_ENV"
+          echo "EXPECTED_SIGNING_FINGERPRINT=$expected" >> "$GITHUB_ENV"
+          echo "SIGNING_KEY_VALID=true" >> "$GITHUB_ENV"
+
+      - name: Save persistent signing key
+        if: steps.signing-cache.outputs.cache-hit != 'true' && env.SIGNING_KEY_VALID == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: piliplus-kirikira-signing-v1
+
+      - name: Record initial signing fingerprint
+        if: env.EXPECTED_SIGNING_FINGERPRINT == 'UNINITIALIZED'
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s\n' "$SIGNING_FINGERPRINT" > android/custom-signing.sha256
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add android/custom-signing.sha256
+          git commit -m "build: record persistent signing fingerprint"
+          git push origin "HEAD:$GITHUB_REF_NAME"
+
+      - name: Keep signing cache warm
+        if: github.event_name == 'schedule'
+        run: echo "Signing key cache restored and validated."
+
+      - name: Setup Flutter
+        if: github.event_name != 'schedule'
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version-file: pubspec.yaml
+          cache: true
+
+      - name: Apply project and dependency patches
+        if: github.event_name != 'schedule'
+        shell: pwsh
+        run: lib/scripts/patch.ps1 android
+
+      - name: Set fixed downgrade-friendly version
+        if: github.event_name != 'schedule'
+        shell: pwsh
+        run: lib/scripts/build.ps1 android
+
+      - name: Build release APKs
+        if: github.event_name != 'schedule'
+        run: flutter build apk --release --split-per-abi --dart-define-from-file=pili_release.json --no-pub
+
+      - name: Rename APKs
+        if: github.event_name != 'schedule'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in build/app/outputs/flutter-apk/app-*-release.apk; do
+            abi="$(echo "$file" | sed -E 's|.*app-(.*)-release\.apk|\1|')"
+            mv "$file" "PiliPlus_foldable_danmaku_${{ env.version }}_${abi}.apk"
+          done
+
+      - name: Upload Android arm64-v8a APK
+        if: github.event_name != 'schedule'
+        uses: actions/upload-artifact@v7
+        with:
+          archive: false
+          name: PiliPlus-foldable-danmaku-arm64-v8a
+          path: PiliPlus_foldable_danmaku_*_arm64-v8a.apk
+
+      - name: Upload Android armeabi-v7a APK
+        if: github.event_name != 'schedule'
+        uses: actions/upload-artifact@v7
+        with:
+          archive: false
+          name: PiliPlus-foldable-danmaku-armeabi-v7a
+          path: PiliPlus_foldable_danmaku_*_armeabi-v7a.apk
+
+      - name: Upload Android x86_64 APK
+        if: github.event_name != 'schedule'
+        uses: actions/upload-artifact@v7
+        with:
+          archive: false
+          name: PiliPlus-foldable-danmaku-x86_64
+          path: PiliPlus_foldable_danmaku_*_x86_64.apk
