@@ -73,6 +73,17 @@ jobs:
           echo "EXPECTED_SIGNING_FINGERPRINT=$expected" >> "$GITHUB_ENV"
           echo "SIGNING_KEY_VALID=true" >> "$GITHUB_ENV"
 
+      - name: Configure release signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > android/key.properties <<EOF
+          storeFile=$HOME/.android/debug.keystore
+          storePassword=android
+          keyAlias=androiddebugkey
+          keyPassword=android
+          EOF
+
       - name: Save persistent signing key
         if: steps.signing-cache.outputs.cache-hit != 'true' && env.SIGNING_KEY_VALID == 'true'
         uses: actions/cache/save@v4
@@ -117,6 +128,31 @@ jobs:
       - name: Build release APKs
         if: github.event_name != 'schedule'
         run: flutter build apk --release --split-per-abi --dart-define-from-file=pili_release.json --no-pub
+
+      - name: Verify actual APK signing certificate
+        if: github.event_name != 'schedule'
+        shell: bash
+        run: |
+          set -euo pipefail
+          apksigner="$(find "$ANDROID_HOME/build-tools" -mindepth 2 -maxdepth 2 -type f -name apksigner | sort -V | tail -n 1)"
+          test -x "$apksigner"
+
+          expected="$(printf '%s' "$SIGNING_FINGERPRINT" | tr -d ':' | tr '[:lower:]' '[:upper:]')"
+          for file in build/app/outputs/flutter-apk/app-*-release.apk; do
+            actual="$("$apksigner" verify --print-certs "$file" |
+              sed -n 's/^Signer #1 certificate SHA-256 digest: //p' |
+              head -n 1 |
+              tr -d ':' |
+              tr '[:lower:]' '[:upper:]')"
+
+            echo "$file signer SHA-256: $actual"
+            if [ "$actual" != "$expected" ]; then
+              echo "::error::APK signer differs from persistent signing key."
+              echo "Expected: $expected"
+              echo "Actual:   $actual"
+              exit 1
+            fi
+          done
 
       - name: Rename APKs
         if: github.event_name != 'schedule'
