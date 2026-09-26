@@ -30,6 +30,13 @@ List<SettingsModel> get playSettings => [
     setKey: SettingBoxKey.enableShowDanmaku,
     defaultVal: true,
   ),
+  const SwitchModel(
+    title: '视频详情页弹幕快捷操作',
+    subtitle: '显示 Tab 栏右侧的“发弹幕”和弹幕开关图标',
+    leading: Icon(CustomIcons.dm_on),
+    setKey: SettingBoxKey.showVideoDetailDanmakuControls,
+    defaultVal: true,
+  ),
   if (PlatformUtils.isMobile)
     const SwitchModel(
       title: '启用点击弹幕',

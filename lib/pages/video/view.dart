@@ -67,6 +67,7 @@ import 'package:PiliPlus/utils/page_utils.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
+import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:PiliPlus/utils/theme_utils.dart';
 import 'package:extended_nested_scroll_view/extended_nested_scroll_view.dart';
 import 'package:flutter/foundation.dart' show kDebugMode, clampDouble;
@@ -1390,52 +1391,54 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
                   ),
                 ),
               ),
-            SizedBox(
-              height: 32,
-              child: TextButton(
-                style: const ButtonStyle(
-                  padding: WidgetStatePropertyAll(.zero),
-                ),
-                onPressed: videoDetailController.showShootDanmakuSheet,
-                child: Text(
-                  '发弹幕',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: colorScheme.onSurfaceVariant,
+            if (Pref.showVideoDetailDanmakuControls) ...[
+              SizedBox(
+                height: 32,
+                child: TextButton(
+                  style: const ButtonStyle(
+                    padding: WidgetStatePropertyAll(.zero),
+                  ),
+                  onPressed: videoDetailController.showShootDanmakuSheet,
+                  child: Text(
+                    '发弹幕',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: colorScheme.onSurfaceVariant,
+                    ),
                   ),
                 ),
               ),
-            ),
-            SizedBox.square(
-              dimension: 38,
-              child: Obx(
-                () {
-                  final ctr = videoDetailController.plPlayerController;
-                  final enableShowDanmaku = ctr.enableShowDanmaku.value;
-                  return IconButton(
-                    onPressed: () {
-                      final newVal = !enableShowDanmaku;
-                      ctr.enableShowDanmaku.value = newVal;
-                      if (!ctr.tempPlayerConf) {
-                        GStorage.setting.put(
-                          SettingBoxKey.enableShowDanmaku,
-                          newVal,
-                        );
-                      }
-                    },
-                    icon: Icon(
-                      size: 22,
-                      enableShowDanmaku
-                          ? CustomIcons.dm_on
-                          : CustomIcons.dm_off,
-                      color: enableShowDanmaku
-                          ? colorScheme.secondary
-                          : colorScheme.outline,
-                    ),
-                  );
-                },
+              SizedBox.square(
+                dimension: 38,
+                child: Obx(
+                  () {
+                    final ctr = videoDetailController.plPlayerController;
+                    final enableShowDanmaku = ctr.enableShowDanmaku.value;
+                    return IconButton(
+                      onPressed: () {
+                        final newVal = !enableShowDanmaku;
+                        ctr.enableShowDanmaku.value = newVal;
+                        if (!ctr.tempPlayerConf) {
+                          GStorage.setting.put(
+                            SettingBoxKey.enableShowDanmaku,
+                            newVal,
+                          );
+                        }
+                      },
+                      icon: Icon(
+                        size: 22,
+                        enableShowDanmaku
+                            ? CustomIcons.dm_on
+                            : CustomIcons.dm_off,
+                        color: enableShowDanmaku
+                            ? colorScheme.secondary
+                            : colorScheme.outline,
+                      ),
+                    );
+                  },
+                ),
               ),
-            ),
+            ],
             const SizedBox(width: 14),
           ],
         ),

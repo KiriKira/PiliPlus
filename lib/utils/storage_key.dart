@@ -119,6 +119,7 @@ abstract final class SettingBoxKey {
       enableHttp2 = 'enableHttp2',
       slideDismissReplyPage = 'slideDismissReplyPage',
       showFSActionItem = 'showFSActionItem',
+      showVideoDetailDanmakuControls = 'showVideoDetailDanmakuControls',
       enableShrinkVideoSize = 'enableShrinkVideoSize',
       showDynActionBar = 'showDynActionBar',
       darkVideoPage = 'darkVideoPage',
