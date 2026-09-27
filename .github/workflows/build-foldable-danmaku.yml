@@ -19,6 +19,7 @@ concurrency:
 
 env:
   PILI_VERSION_CODE: "2100000000"
+  PILI_SIGNING_SHA256: "B8:19:28:5C:5A:86:29:83:2A:A2:90:E2:47:62:2F:94:99:18:BA:6F:28:CC:D4:F8:BE:14:EC:28:ED:7A:3E:57"
 
 jobs:
   android:
@@ -54,24 +55,31 @@ jobs:
           set -euo pipefail
           mkdir -p "$HOME/.android"
 
-          if [ "${{ steps.signing-cache.outputs.cache-hit }}" != "true" ]; then
-            keytool -genkeypair               -keystore "$HOME/.android/debug.keystore"               -storepass android               -alias androiddebugkey               -keypass android               -dname "CN=PiliPlus Custom Build, O=KiriKira, C=JP"               -keyalg RSA               -keysize 2048               -validity 36500
+          expected_file="$(tr -d '\r\n' < android/custom-signing.sha256)"
+          if [ "$expected_file" != "$PILI_SIGNING_SHA256" ]; then
+            echo "::error::Pinned signing fingerprint was changed in the repository."
+            echo "Workflow pin: $PILI_SIGNING_SHA256"
+            echo "Repo pin:     $expected_file"
+            exit 1
+          fi
+
+          if [ "${{ steps.signing-cache.outputs.cache-hit }}" != "true" ] || [ ! -f "$HOME/.android/debug.keystore" ]; then
+            echo "::error::Persistent signing key is unavailable. Refusing to generate or accept a replacement key."
+            echo "::error::Restore the original keystore whose SHA-256 certificate fingerprint is $PILI_SIGNING_SHA256."
+            exit 1
           fi
 
           fingerprint="$(keytool -list -v             -keystore "$HOME/.android/debug.keystore"             -storepass android             -alias androiddebugkey |
             sed -n 's/^[[:space:]]*SHA256: //p' | head -n 1)"
 
-          expected="$(tr -d '\r\n' < android/custom-signing.sha256)"
-          if [ "$expected" != "UNINITIALIZED" ] && [ "$expected" != "$fingerprint" ]; then
-            echo "::error::Signing key fingerprint changed. Refusing to build an APK with a new signature."
-            echo "Expected: $expected"
+          if [ "$fingerprint" != "$PILI_SIGNING_SHA256" ]; then
+            echo "::error::Restored signing key does not match the permanently pinned certificate."
+            echo "Expected: $PILI_SIGNING_SHA256"
             echo "Actual:   $fingerprint"
             exit 1
           fi
 
           echo "SIGNING_FINGERPRINT=$fingerprint" >> "$GITHUB_ENV"
-          echo "EXPECTED_SIGNING_FINGERPRINT=$expected" >> "$GITHUB_ENV"
-          echo "SIGNING_KEY_VALID=true" >> "$GITHUB_ENV"
 
       - name: Configure release signing
         shell: bash
@@ -83,25 +91,6 @@ jobs:
           keyAlias=androiddebugkey
           keyPassword=android
           EOF
-
-      - name: Save persistent signing key
-        if: steps.signing-cache.outputs.cache-hit != 'true' && env.SIGNING_KEY_VALID == 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: ~/.android/debug.keystore
-          key: piliplus-kirikira-signing-v1
-
-      - name: Record initial signing fingerprint
-        if: env.EXPECTED_SIGNING_FINGERPRINT == 'UNINITIALIZED'
-        shell: bash
-        run: |
-          set -euo pipefail
-          printf '%s\n' "$SIGNING_FINGERPRINT" > android/custom-signing.sha256
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add android/custom-signing.sha256
-          git commit -m "build: record persistent signing fingerprint"
-          git push origin "HEAD:$GITHUB_REF_NAME"
 
       - name: Keep signing cache warm
         if: github.event_name == 'schedule'
@@ -137,7 +126,7 @@ jobs:
           apksigner="$(find "$ANDROID_HOME/build-tools" -mindepth 2 -maxdepth 2 -type f -name apksigner | sort -V | tail -n 1)"
           test -x "$apksigner"
 
-          expected="$(printf '%s' "$SIGNING_FINGERPRINT" | tr -d ':' | tr '[:lower:]' '[:upper:]')"
+          expected="$(printf '%s' "$PILI_SIGNING_SHA256" | tr -d ':' | tr '[:lower:]' '[:upper:]')"
           for file in build/app/outputs/flutter-apk/app-*-release.apk; do
             # Verify the APK signatures first. Use keytool to read the v1 signer
             # certificate fingerprint instead of depending on apksigner's
