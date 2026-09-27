@@ -30,9 +30,12 @@ The workflow never generates or accepts a replacement signing key.
 ## One-time migration from the legacy Actions cache
 
 The current B8:19:... key predates the Repository Secrets setup and is still
-available in the legacy Actions cache. Use the manual
-`Export PiliPlus signing keystore` workflow once to export it encrypted to an
-age recipient that you control.
+available in the legacy Actions cache. The normal build workflow no longer uses
+that cache at all. It intentionally fails until the Repository Secrets above
+are configured.
+
+Use the manual `Export PiliPlus signing keystore` workflow once to export the
+legacy cached key encrypted to an age recipient that you control.
 
 On a trusted local machine:
 
@@ -78,5 +81,7 @@ gh secret set PILIPLUS_KEY_PASSWORD -b 'android'
 Keep an offline backup of the original keystore. Losing the private key means
 new builds can no longer update an installed copy signed by this certificate.
 
-After a build has successfully reported `repository-secrets` as its signing
-source, the legacy cache fallback can be removed permanently.
+After the four Repository Secrets are configured, the normal build workflow
+has no signing-key cache fallback and cannot generate a replacement key. The
+manual export workflow is only a migration aid and can be deleted after you
+have verified a successful secret-backed build and stored an offline backup.
