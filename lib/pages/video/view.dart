@@ -1383,13 +1383,17 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
               const Spacer()
             else
               Expanded(
-                child: Align(
-                  alignment: .centerLeft,
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(maxWidth: 96.0 * tabs.length),
-                    child: tabBar(),
-                  ),
-                ),
+                child: Pref.showVideoDetailDanmakuControls
+                    ? Align(
+                        alignment: .centerLeft,
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(
+                            maxWidth: 96.0 * tabs.length,
+                          ),
+                          child: tabBar(),
+                        ),
+                      )
+                    : tabBar(),
               ),
             if (Pref.showVideoDetailDanmakuControls) ...[
               SizedBox(
@@ -1438,8 +1442,8 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
                   },
                 ),
               ),
+              const SizedBox(width: 14),
             ],
-            const SizedBox(width: 14),
           ],
         ),
       ),
