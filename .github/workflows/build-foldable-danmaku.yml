@@ -25,11 +25,6 @@ jobs:
   android:
     name: Signed Android APK
     runs-on: ubuntu-latest
-    env:
-      PILIPLUS_KEYSTORE_BASE64: ${{ secrets.PILIPLUS_KEYSTORE_BASE64 }}
-      PILIPLUS_KEYSTORE_PASSWORD: ${{ secrets.PILIPLUS_KEYSTORE_PASSWORD }}
-      PILIPLUS_KEY_ALIAS: ${{ secrets.PILIPLUS_KEY_ALIAS }}
-      PILIPLUS_KEY_PASSWORD: ${{ secrets.PILIPLUS_KEY_PASSWORD }}
 
     steps:
       - name: Checkout
@@ -51,7 +46,6 @@ jobs:
       # are configured, this cache is not used at all.
       - name: Restore legacy signing-key cache
         id: signing-cache
-        if: env.PILIPLUS_KEYSTORE_BASE64 == ''
         uses: actions/cache/restore@v4
         with:
           path: ~/.android/debug.keystore
@@ -59,6 +53,11 @@ jobs:
 
       - name: Restore and verify signing configuration
         shell: bash
+        env:
+          PILIPLUS_KEYSTORE_BASE64: ${{ secrets.PILIPLUS_KEYSTORE_BASE64 }}
+          PILIPLUS_KEYSTORE_PASSWORD: ${{ secrets.PILIPLUS_KEYSTORE_PASSWORD }}
+          PILIPLUS_KEY_ALIAS: ${{ secrets.PILIPLUS_KEY_ALIAS }}
+          PILIPLUS_KEY_PASSWORD: ${{ secrets.PILIPLUS_KEY_PASSWORD }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/piliplus-signing"
