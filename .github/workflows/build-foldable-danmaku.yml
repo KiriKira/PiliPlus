@@ -139,13 +139,22 @@ jobs:
 
           expected="$(printf '%s' "$SIGNING_FINGERPRINT" | tr -d ':' | tr '[:lower:]' '[:upper:]')"
           for file in build/app/outputs/flutter-apk/app-*-release.apk; do
-            actual="$("$apksigner" verify --print-certs "$file" |
-              sed -n 's/^Signer #1 certificate SHA-256 digest: //p' |
+            # Verify the APK signatures first. Use keytool to read the v1 signer
+            # certificate fingerprint instead of depending on apksigner's
+            # human-readable --print-certs wording, which varies by build-tools.
+            "$apksigner" verify --verbose "$file"
+
+            actual="$(keytool -printcert -jarfile "$file" |
+              sed -n 's/^[[:space:]]*SHA256: //p' |
               head -n 1 |
               tr -d ':' |
               tr '[:lower:]' '[:upper:]')"
 
             echo "$file signer SHA-256: $actual"
+            if [ -z "$actual" ]; then
+              echo "::error::Could not read the APK signing certificate fingerprint."
+              exit 1
+            fi
             if [ "$actual" != "$expected" ]; then
               echo "::error::APK signer differs from persistent signing key."
               echo "Expected: $expected"
