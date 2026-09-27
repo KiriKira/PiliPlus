@@ -94,8 +94,8 @@ jobs:
         shell: pwsh
         run: lib/scripts/build.ps1 android
 
-      - name: Build release APKs
-        run: flutter build apk --release --split-per-abi --dart-define-from-file=pili_release.json --no-pub
+      - name: Build release APK
+        run: flutter build apk --release --target-platform android-arm64 --split-per-abi --dart-define-from-file=pili_release.json --no-pub
 
       - name: Verify actual APK signing certificate
         shell: bash
@@ -142,20 +142,6 @@ jobs:
           archive: false
           name: PiliPlus-foldable-danmaku-arm64-v8a
           path: PiliPlus_foldable_danmaku_*_arm64-v8a.apk
-
-      - name: Upload Android armeabi-v7a APK
-        uses: actions/upload-artifact@v7
-        with:
-          archive: false
-          name: PiliPlus-foldable-danmaku-armeabi-v7a
-          path: PiliPlus_foldable_danmaku_*_armeabi-v7a.apk
-
-      - name: Upload Android x86_64 APK
-        uses: actions/upload-artifact@v7
-        with:
-          archive: false
-          name: PiliPlus-foldable-danmaku-x86_64
-          path: PiliPlus_foldable_danmaku_*_x86_64.apk
 
       - name: Publish GitHub Release
         if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[release]')
