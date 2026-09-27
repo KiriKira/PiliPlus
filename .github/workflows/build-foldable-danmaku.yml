@@ -25,6 +25,11 @@ jobs:
   android:
     name: Signed Android APK
     runs-on: ubuntu-latest
+    env:
+      PILIPLUS_KEYSTORE_BASE64: ${{ secrets.PILIPLUS_KEYSTORE_BASE64 }}
+      PILIPLUS_KEYSTORE_PASSWORD: ${{ secrets.PILIPLUS_KEYSTORE_PASSWORD }}
+      PILIPLUS_KEY_ALIAS: ${{ secrets.PILIPLUS_KEY_ALIAS }}
+      PILIPLUS_KEY_PASSWORD: ${{ secrets.PILIPLUS_KEY_PASSWORD }}
 
     steps:
       - name: Checkout
@@ -42,18 +47,21 @@ jobs:
             android/*.gradle*
             android/**/gradle-wrapper.properties
 
-      - name: Restore persistent signing key
+      # Transitional fallback only. Once the four PILIPLUS_* signing secrets
+      # are configured, this cache is not used at all.
+      - name: Restore legacy signing-key cache
         id: signing-cache
+        if: env.PILIPLUS_KEYSTORE_BASE64 == ''
         uses: actions/cache/restore@v4
         with:
           path: ~/.android/debug.keystore
           key: piliplus-kirikira-signing-v1
 
-      - name: Prepare and verify signing key
+      - name: Restore and verify signing configuration
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$HOME/.android"
+          mkdir -p "$RUNNER_TEMP/piliplus-signing"
 
           expected_file="$(tr -d '\r\n' < android/custom-signing.sha256)"
           if [ "$expected_file" != "$PILI_SIGNING_SHA256" ]; then
@@ -63,38 +71,64 @@ jobs:
             exit 1
           fi
 
-          if [ "${{ steps.signing-cache.outputs.cache-hit }}" != "true" ] || [ ! -f "$HOME/.android/debug.keystore" ]; then
-            echo "::error::Persistent signing key is unavailable. Refusing to generate or accept a replacement key."
-            echo "::error::Restore the original keystore whose SHA-256 certificate fingerprint is $PILI_SIGNING_SHA256."
+          secret_count=0
+          [ -n "$PILIPLUS_KEYSTORE_BASE64" ] && secret_count=$((secret_count + 1))
+          [ -n "$PILIPLUS_KEYSTORE_PASSWORD" ] && secret_count=$((secret_count + 1))
+          [ -n "$PILIPLUS_KEY_ALIAS" ] && secret_count=$((secret_count + 1))
+          [ -n "$PILIPLUS_KEY_PASSWORD" ] && secret_count=$((secret_count + 1))
+
+          if [ "$secret_count" -ne 0 ] && [ "$secret_count" -ne 4 ]; then
+            echo "::error::PiliPlus signing secrets are only partially configured."
+            echo "::error::Set all four PILIPLUS_KEYSTORE_BASE64, PILIPLUS_KEYSTORE_PASSWORD, PILIPLUS_KEY_ALIAS, and PILIPLUS_KEY_PASSWORD."
             exit 1
           fi
 
-          fingerprint="$(keytool -list -v             -keystore "$HOME/.android/debug.keystore"             -storepass android             -alias androiddebugkey |
+          if [ "$secret_count" -eq 4 ]; then
+            keystore="$RUNNER_TEMP/piliplus-signing/release.keystore"
+            printf '%s' "$PILIPLUS_KEYSTORE_BASE64" | base64 --decode > "$keystore"
+            store_password="$PILIPLUS_KEYSTORE_PASSWORD"
+            key_alias="$PILIPLUS_KEY_ALIAS"
+            key_password="$PILIPLUS_KEY_PASSWORD"
+            signing_source="repository-secrets"
+          else
+            keystore="$HOME/.android/debug.keystore"
+            if [ "${{ steps.signing-cache.outputs.cache-hit }}" != "true" ] || [ ! -f "$keystore" ]; then
+              echo "::error::PiliPlus signing secrets are not configured and the legacy cache is unavailable."
+              echo "::error::Refusing to generate or accept a replacement signing key."
+              exit 1
+            fi
+            store_password="android"
+            key_alias="androiddebugkey"
+            key_password="android"
+            signing_source="legacy-cache"
+            echo "::warning::Using legacy Actions-cache signing key. Migrate it to PILIPLUS_* repository secrets; see docs/SIGNING.md."
+          fi
+
+          fingerprint="$(keytool -list -v             -keystore "$keystore"             -storepass "$store_password"             -alias "$key_alias" |
             sed -n 's/^[[:space:]]*SHA256: //p' | head -n 1)"
 
           if [ "$fingerprint" != "$PILI_SIGNING_SHA256" ]; then
-            echo "::error::Restored signing key does not match the permanently pinned certificate."
+            echo "::error::Signing key does not match the permanently pinned certificate."
             echo "Expected: $PILI_SIGNING_SHA256"
             echo "Actual:   $fingerprint"
             exit 1
           fi
 
-          echo "SIGNING_FINGERPRINT=$fingerprint" >> "$GITHUB_ENV"
+          {
+            echo "SIGNING_FINGERPRINT=$fingerprint"
+            echo "SIGNING_KEY_SOURCE=$signing_source"
+          } >> "$GITHUB_ENV"
 
-      - name: Configure release signing
-        shell: bash
-        run: |
-          set -euo pipefail
           cat > android/key.properties <<EOF
-          storeFile=$HOME/.android/debug.keystore
-          storePassword=android
-          keyAlias=androiddebugkey
-          keyPassword=android
+          storeFile=$keystore
+          storePassword=$store_password
+          keyAlias=$key_alias
+          keyPassword=$key_password
           EOF
 
-      - name: Keep signing cache warm
+      - name: Scheduled signing check
         if: github.event_name == 'schedule'
-        run: echo "Signing key cache restored and validated."
+        run: echo "Signing configuration source: $SIGNING_KEY_SOURCE; certificate fingerprint validated."
 
       - name: Setup Flutter
         if: github.event_name != 'schedule'
