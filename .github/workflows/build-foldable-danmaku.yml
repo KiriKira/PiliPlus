@@ -179,7 +179,6 @@ jobs:
           path: PiliPlus_foldable_danmaku_*_arm64-v8a.apk
 
       - name: Publish GitHub Release
-        if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[release]')
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
