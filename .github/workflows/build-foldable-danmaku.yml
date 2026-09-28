@@ -40,6 +40,13 @@ jobs:
             android/*.gradle*
             android/**/gradle-wrapper.properties
 
+      - name: Restore legacy signing-key cache
+        id: signing-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: piliplus-kirikira-signing-v1
+
       - name: Restore signing configuration
         shell: bash
         env:
@@ -49,22 +56,47 @@ jobs:
           KEY_PASSWORD: ${{ secrets.PILIPLUS_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          test -n "$KEYSTORE_BASE64"
-          test -n "$KEYSTORE_PASSWORD"
-          test -n "$KEY_ALIAS"
-          test -n "$KEY_PASSWORD"
 
-          keystore="$RUNNER_TEMP/piliplus-release.keystore"
-          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$keystore"
+          secret_count=0
+          [ -n "$KEYSTORE_BASE64" ] && secret_count=$((secret_count + 1))
+          [ -n "$KEYSTORE_PASSWORD" ] && secret_count=$((secret_count + 1))
+          [ -n "$KEY_ALIAS" ] && secret_count=$((secret_count + 1))
+          [ -n "$KEY_PASSWORD" ] && secret_count=$((secret_count + 1))
+
+          if [ "$secret_count" -ne 0 ] && [ "$secret_count" -ne 4 ]; then
+            echo "::error::PiliPlus signing secrets are only partially configured."
+            exit 1
+          fi
+
+          if [ "$secret_count" -eq 4 ]; then
+            keystore="$RUNNER_TEMP/piliplus-release.keystore"
+            printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$keystore"
+            store_password="$KEYSTORE_PASSWORD"
+            key_alias="$KEY_ALIAS"
+            key_password="$KEY_PASSWORD"
+            signing_source="repository-secrets"
+          else
+            keystore="$HOME/.android/debug.keystore"
+            if [ "${{ steps.signing-cache.outputs.cache-hit }}" != "true" ] || [ ! -f "$keystore" ]; then
+              echo "::error::Repository signing secrets are not configured and the pinned legacy keystore cache is unavailable."
+              echo "::error::Refusing to generate a replacement key."
+              exit 1
+            fi
+            store_password="android"
+            key_alias="androiddebugkey"
+            key_password="android"
+            signing_source="legacy-cache"
+            echo "::warning::Using pinned legacy signing cache until Repository Secrets migration is completed."
+          fi
 
           fingerprint="$(keytool -list -v \
             -keystore "$keystore" \
-            -storepass "$KEYSTORE_PASSWORD" \
-            -alias "$KEY_ALIAS" |
+            -storepass "$store_password" \
+            -alias "$key_alias" |
             sed -n 's/^[[:space:]]*SHA256: //p' | head -n 1)"
 
           if [ "$fingerprint" != "$PILI_SIGNING_SHA256" ]; then
-            echo "::error::Repository signing secret does not match the permanently pinned PiliPlus certificate."
+            echo "::error::Signing key does not match the permanently pinned PiliPlus certificate."
             echo "Expected: $PILI_SIGNING_SHA256"
             echo "Actual:   $fingerprint"
             exit 1
@@ -72,12 +104,15 @@ jobs:
 
           cat > android/key.properties <<EOF
           storeFile=$keystore
-          storePassword=$KEYSTORE_PASSWORD
-          keyAlias=$KEY_ALIAS
-          keyPassword=$KEY_PASSWORD
+          storePassword=$store_password
+          keyAlias=$key_alias
+          keyPassword=$key_password
           EOF
 
-          echo "SIGNING_FINGERPRINT=$fingerprint" >> "$GITHUB_ENV"
+          {
+            echo "SIGNING_FINGERPRINT=$fingerprint"
+            echo "SIGNING_KEY_SOURCE=$signing_source"
+          } >> "$GITHUB_ENV"
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
