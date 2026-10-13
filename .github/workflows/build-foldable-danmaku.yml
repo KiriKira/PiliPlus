@@ -177,6 +177,7 @@ jobs:
           archive: false
           name: PiliPlus-foldable-danmaku-arm64-v8a
           path: PiliPlus_foldable_danmaku_*_arm64-v8a.apk
+          retention-days: 1
 
       - name: Publish GitHub Release
         shell: bash
