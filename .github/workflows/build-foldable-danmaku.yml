@@ -1,27 +1,26 @@
-name: Build Foldable Danmaku
+name: Release Android
 
 on:
   push:
     branches:
-      - feature/foldable-danmaku-camera-avoidance
-    paths-ignore:
-      - android/custom-signing.sha256
+      - main
   workflow_dispatch:
 
 permissions:
   contents: write
 
 concurrency:
-  group: foldable-danmaku-${{ github.ref }}
+  group: release-android-${{ github.ref }}
   cancel-in-progress: true
 
 env:
   PILI_VERSION_CODE: "2100000000"
+  PILI_RELEASE_VERSION_NAME: "2.1.6.2"
   PILI_SIGNING_SHA256: "6C:E8:0D:24:4E:5B:E2:75:36:9B:46:DF:A6:04:05:A8:91:72:58:F8:FD:91:64:5F:44:FE:31:B1:BD:32:90:04"
 
 jobs:
   android:
-    name: Android APK
+    name: Android arm64-v8a
     runs-on: ubuntu-latest
 
     steps:
@@ -40,14 +39,7 @@ jobs:
             android/*.gradle*
             android/**/gradle-wrapper.properties
 
-      - name: Restore legacy signing-key cache
-        id: signing-cache
-        uses: actions/cache/restore@v4
-        with:
-          path: ~/.android/debug.keystore
-          key: piliplus-kirikira-signing-v1
-
-      - name: Restore signing configuration
+      - name: Restore and verify signing configuration
         shell: bash
         env:
           KEYSTORE_BASE64: ${{ secrets.PILIPLUS_KEYSTORE_BASE64 }}
@@ -57,60 +49,22 @@ jobs:
         run: |
           set -euo pipefail
 
-          secret_count=0
-          [ -n "$KEYSTORE_BASE64" ] && secret_count=$((secret_count + 1))
-          [ -n "$KEYSTORE_PASSWORD" ] && secret_count=$((secret_count + 1))
-          [ -n "$KEY_ALIAS" ] && secret_count=$((secret_count + 1))
-          [ -n "$KEY_PASSWORD" ] && secret_count=$((secret_count + 1))
+          test -n "$KEYSTORE_BASE64"
+          test -n "$KEYSTORE_PASSWORD"
+          test -n "$KEY_ALIAS"
+          test -n "$KEY_PASSWORD"
 
-          if [ "$secret_count" -ne 0 ] && [ "$secret_count" -ne 4 ]; then
-            echo "::error::PiliPlus signing secrets are only partially configured."
-            exit 1
-          fi
-
-          publish_signed_build=false
-          if [ "$secret_count" -eq 4 ]; then
-            keystore="$RUNNER_TEMP/piliplus-release.keystore"
-            printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$keystore"
-            store_password="$KEYSTORE_PASSWORD"
-            key_alias="$KEY_ALIAS"
-            key_password="$KEY_PASSWORD"
-            signing_source="repository-secrets"
-            publish_signed_build=true
-          elif [ "${{ steps.signing-cache.outputs.cache-hit }}" = "true" ] && [ -f "$HOME/.android/debug.keystore" ]; then
-            keystore="$HOME/.android/debug.keystore"
-            store_password="android"
-            key_alias="androiddebugkey"
-            key_password="android"
-            signing_source="legacy-cache"
-            publish_signed_build=true
-            echo "::warning::Using pinned legacy signing cache until Repository Secrets migration is completed."
-          else
-            keystore="$RUNNER_TEMP/piliplus-ci-validation.keystore"
-            store_password="android"
-            key_alias="androiddebugkey"
-            key_password="android"
-            signing_source="ephemeral-ci-validation"
-            echo "::warning::Pinned signing key is unavailable. Building only for compile validation; APK upload and GitHub Release publication are disabled."
-            keytool -genkeypair -v \
-              -keystore "$keystore" \
-              -storepass "$store_password" \
-              -alias "$key_alias" \
-              -keypass "$key_password" \
-              -keyalg RSA \
-              -keysize 2048 \
-              -validity 1 \
-              -dname "CN=PiliPlus CI Validation,OU=CI,O=KiriKira,L=CI,ST=CI,C=US" >/dev/null 2>&1
-          fi
+          keystore="$RUNNER_TEMP/piliplus-release.keystore"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$keystore"
 
           fingerprint="$(keytool -list -v \
             -keystore "$keystore" \
-            -storepass "$store_password" \
-            -alias "$key_alias" |
+            -storepass "$KEYSTORE_PASSWORD" \
+            -alias "$KEY_ALIAS" |
             sed -n 's/^[[:space:]]*SHA256: //p' | head -n 1)"
 
-          if [ "$publish_signed_build" = "true" ] && [ "$fingerprint" != "$PILI_SIGNING_SHA256" ]; then
-            echo "::error::Signing key does not match the permanently pinned PiliPlus certificate."
+          if [ "$fingerprint" != "$PILI_SIGNING_SHA256" ]; then
+            echo "::error::Signing key does not match the pinned PiliPlus certificate."
             echo "Expected: $PILI_SIGNING_SHA256"
             echo "Actual:   $fingerprint"
             exit 1
@@ -118,16 +72,10 @@ jobs:
 
           cat > android/key.properties <<EOF
           storeFile=$keystore
-          storePassword=$store_password
-          keyAlias=$key_alias
-          keyPassword=$key_password
+          storePassword=$KEYSTORE_PASSWORD
+          keyAlias=$KEY_ALIAS
+          keyPassword=$KEY_PASSWORD
           EOF
-
-          {
-            echo "SIGNING_FINGERPRINT=$fingerprint"
-            echo "SIGNING_KEY_SOURCE=$signing_source"
-            echo "PUBLISH_SIGNED_BUILD=$publish_signed_build"
-          } >> "$GITHUB_ENV"
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -140,12 +88,21 @@ jobs:
         shell: pwsh
         run: lib/scripts/patch.ps1 android
 
-      - name: Set fixed downgrade-friendly version
+      - name: Prepare release metadata
         shell: pwsh
         run: lib/scripts/build.ps1 android
 
       - name: Build release APK
-        run: flutter build apk --release --target-platform android-arm64 --split-per-abi --dart-define-from-file=pili_release.json --no-pub
+        shell: bash
+        run: |
+          flutter build apk \
+            --release \
+            --target-platform android-arm64 \
+            --split-per-abi \
+            --build-name "$PILI_RELEASE_VERSION_NAME" \
+            --build-number "$PILI_VERSION_CODE" \
+            --dart-define-from-file=pili_release.json \
+            --no-pub
 
       - name: Verify APK signing certificate
         shell: bash
@@ -154,72 +111,64 @@ jobs:
           apksigner="$(find "$ANDROID_HOME/build-tools" -mindepth 2 -maxdepth 2 -type f -name apksigner | sort -V | tail -n 1)"
           test -x "$apksigner"
 
+          file="build/app/outputs/flutter-apk/app-arm64-v8a-release.apk"
+          "$apksigner" verify --verbose "$file"
+
           expected="$(printf '%s' "$PILI_SIGNING_SHA256" | tr -d ':' | tr '[:lower:]' '[:upper:]')"
-          for file in build/app/outputs/flutter-apk/app-*-release.apk; do
-            "$apksigner" verify --verbose "$file"
+          actual="$(keytool -printcert -jarfile "$file" |
+            sed -n 's/^[[:space:]]*SHA256: //p' |
+            head -n 1 |
+            tr -d ':' |
+            tr '[:lower:]' '[:upper:]')"
 
-            actual="$(keytool -printcert -jarfile "$file" |
-              sed -n 's/^[[:space:]]*SHA256: //p' |
-              head -n 1 |
-              tr -d ':' |
-              tr '[:lower:]' '[:upper:]')"
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::APK signer differs from the pinned signing key."
+            echo "Expected: $expected"
+            echo "Actual:   $actual"
+            exit 1
+          fi
 
-            echo "$file signer SHA-256: $actual"
-            if [ -z "$actual" ]; then
-              echo "::error::Could not read the APK signing certificate fingerprint."
-              exit 1
-            fi
-            if [ "$PUBLISH_SIGNED_BUILD" = "true" ] && [ "$actual" != "$expected" ]; then
-              echo "::error::APK signer differs from the permanently pinned signing key."
-              echo "Expected: $expected"
-              echo "Actual:   $actual"
-              exit 1
-            fi
-          done
-
-      - name: Rename APKs
+      - name: Rename APK
         shell: bash
         run: |
-          set -euo pipefail
-          for file in build/app/outputs/flutter-apk/app-*-release.apk; do
-            abi="$(echo "$file" | sed -E 's|.*app-(.*)-release\.apk|\1|')"
-            mv "$file" "PiliPlus_foldable_danmaku_${{ env.version }}_${abi}.apk"
-          done
+          mv build/app/outputs/flutter-apk/app-arm64-v8a-release.apk \
+            "PiliPlus_${PILI_RELEASE_VERSION_NAME}_arm64-v8a.apk"
 
-      - name: Upload Android arm64-v8a APK
-        if: env.PUBLISH_SIGNED_BUILD == 'true'
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v7
         with:
           archive: false
-          name: PiliPlus-foldable-danmaku-arm64-v8a
-          path: PiliPlus_foldable_danmaku_*_arm64-v8a.apk
-          retention-days: 1
+          name: PiliPlus-${{ env.PILI_RELEASE_VERSION_NAME }}-arm64-v8a
+          path: PiliPlus_${{ env.PILI_RELEASE_VERSION_NAME }}_arm64-v8a.apk
+          retention-days: 7
 
       - name: Publish GitHub Release
-        if: env.PUBLISH_SIGNED_BUILD == 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          tag="foldable-danmaku-${version}"
-          title_version="${version%%+*}"
+          tag="v${PILI_RELEASE_VERSION_NAME}"
+          apk="PiliPlus_${PILI_RELEASE_VERSION_NAME}_arm64-v8a.apk"
           notes=$(cat <<'EOF'
-          Custom PiliPlus build based on upstream 2.1.6.2.
+          PiliPlus 2.1.6.2 custom release.
 
-          - Foldable / large-screen fullscreen playback: scrolling danmaku is shifted below the front-camera display cutout.
+          - Scrolling danmaku avoids the display cutout on supported foldable / large-screen devices.
           - Static / centered danmaku keeps its original position.
           - Video-detail danmaku quick controls can be hidden from Playback Settings.
-          - APKs are signed with the permanently pinned PiliPlus fork signing key.
+          - Android arm64-v8a only.
           EOF
           )
 
           if gh release view "$tag" >/dev/null 2>&1; then
-            gh release upload "$tag" PiliPlus_foldable_danmaku_*.apk --clobber
-          else
-            gh release create "$tag" \
-              PiliPlus_foldable_danmaku_*.apk \
+            gh release upload "$tag" "$apk" --clobber
+            gh release edit "$tag" \
               --target "$GITHUB_SHA" \
-              --title "PiliPlus ${title_version} Foldable Danmaku" \
+              --title "PiliPlus ${PILI_RELEASE_VERSION_NAME}" \
+              --notes "$notes"
+          else
+            gh release create "$tag" "$apk" \
+              --target "$GITHUB_SHA" \
+              --title "PiliPlus ${PILI_RELEASE_VERSION_NAME}" \
               --notes "$notes"
           fi
