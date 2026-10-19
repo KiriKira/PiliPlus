@@ -23,7 +23,7 @@ try {
         }
     }
 
-    $versionName = $null
+    $baseVersionName = $null
 
     $versionCode = if ($env:PILI_VERSION_CODE) {
         [int]$env:PILI_VERSION_CODE
@@ -35,27 +35,30 @@ try {
 
     $updatedContent = foreach ($line in (Get-Content -Path 'pubspec.yaml' -Encoding UTF8)) {
         if ($line -match '^\s*version:\s*([\d\.]+)') {
-            $versionName = $matches[1]
-            if ($Arg -eq 'android') {
-                $versionName += '-' + $commitHash.Substring(0, 9)
-            }
-            "version: $versionName+$versionCode"
+            $baseVersionName = $matches[1]
+            "version: $baseVersionName+$versionCode"
         }
         else {
             $line
         }
     }
 
-    if ($null -eq $versionName) {
+    if ($null -eq $baseVersionName) {
         throw 'version not found'
     }
 
     $updatedContent | Set-Content -Path 'pubspec.yaml' -Encoding UTF8
 
+    $releaseVersionName = if ($env:PILI_RELEASE_VERSION_NAME) {
+        $env:PILI_RELEASE_VERSION_NAME
+    } else {
+        $baseVersionName
+    }
+
     $buildTime = [int]([DateTimeOffset]::Now.ToUnixTimeSeconds())
 
     $data = @{
-        'pili.name' = $versionName
+        'pili.name' = $releaseVersionName
         'pili.code' = $versionCode
         'pili.hash' = $commitHash
         'pili.time' = $buildTime
@@ -63,7 +66,7 @@ try {
 
     $data | ConvertTo-Json -Compress | Out-File 'pili_release.json' -Encoding UTF8
 
-    Add-Content -Path $env:GITHUB_ENV -Value "version=$versionName+$versionCode"
+    Add-Content -Path $env:GITHUB_ENV -Value "version=$releaseVersionName+$versionCode"
 }
 catch {
     Write-Error "Prebuild Error: $($_.Exception.Message)"
