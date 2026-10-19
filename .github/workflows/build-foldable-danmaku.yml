@@ -21,7 +21,7 @@ env:
 
 jobs:
   android:
-    name: Signed Android APK
+    name: Android APK
     runs-on: ubuntu-latest
 
     steps:
@@ -68,6 +68,7 @@ jobs:
             exit 1
           fi
 
+          publish_signed_build=false
           if [ "$secret_count" -eq 4 ]; then
             keystore="$RUNNER_TEMP/piliplus-release.keystore"
             printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$keystore"
@@ -75,18 +76,31 @@ jobs:
             key_alias="$KEY_ALIAS"
             key_password="$KEY_PASSWORD"
             signing_source="repository-secrets"
-          else
+            publish_signed_build=true
+          elif [ "${{ steps.signing-cache.outputs.cache-hit }}" = "true" ] && [ -f "$HOME/.android/debug.keystore" ]; then
             keystore="$HOME/.android/debug.keystore"
-            if [ "${{ steps.signing-cache.outputs.cache-hit }}" != "true" ] || [ ! -f "$keystore" ]; then
-              echo "::error::Repository signing secrets are not configured and the pinned legacy keystore cache is unavailable."
-              echo "::error::Refusing to generate a replacement key."
-              exit 1
-            fi
             store_password="android"
             key_alias="androiddebugkey"
             key_password="android"
             signing_source="legacy-cache"
+            publish_signed_build=true
             echo "::warning::Using pinned legacy signing cache until Repository Secrets migration is completed."
+          else
+            keystore="$RUNNER_TEMP/piliplus-ci-validation.keystore"
+            store_password="android"
+            key_alias="androiddebugkey"
+            key_password="android"
+            signing_source="ephemeral-ci-validation"
+            echo "::warning::Pinned signing key is unavailable. Building only for compile validation; APK upload and GitHub Release publication are disabled."
+            keytool -genkeypair -v \
+              -keystore "$keystore" \
+              -storepass "$store_password" \
+              -alias "$key_alias" \
+              -keypass "$key_password" \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 1 \
+              -dname "CN=PiliPlus CI Validation,OU=CI,O=KiriKira,L=CI,ST=CI,C=US" >/dev/null 2>&1
           fi
 
           fingerprint="$(keytool -list -v \
@@ -95,7 +109,7 @@ jobs:
             -alias "$key_alias" |
             sed -n 's/^[[:space:]]*SHA256: //p' | head -n 1)"
 
-          if [ "$fingerprint" != "$PILI_SIGNING_SHA256" ]; then
+          if [ "$publish_signed_build" = "true" ] && [ "$fingerprint" != "$PILI_SIGNING_SHA256" ]; then
             echo "::error::Signing key does not match the permanently pinned PiliPlus certificate."
             echo "Expected: $PILI_SIGNING_SHA256"
             echo "Actual:   $fingerprint"
@@ -112,6 +126,7 @@ jobs:
           {
             echo "SIGNING_FINGERPRINT=$fingerprint"
             echo "SIGNING_KEY_SOURCE=$signing_source"
+            echo "PUBLISH_SIGNED_BUILD=$publish_signed_build"
           } >> "$GITHUB_ENV"
 
       - name: Setup Flutter
@@ -132,7 +147,7 @@ jobs:
       - name: Build release APK
         run: flutter build apk --release --target-platform android-arm64 --split-per-abi --dart-define-from-file=pili_release.json --no-pub
 
-      - name: Verify actual APK signing certificate
+      - name: Verify APK signing certificate
         shell: bash
         run: |
           set -euo pipefail
@@ -154,7 +169,7 @@ jobs:
               echo "::error::Could not read the APK signing certificate fingerprint."
               exit 1
             fi
-            if [ "$actual" != "$expected" ]; then
+            if [ "$PUBLISH_SIGNED_BUILD" = "true" ] && [ "$actual" != "$expected" ]; then
               echo "::error::APK signer differs from the permanently pinned signing key."
               echo "Expected: $expected"
               echo "Actual:   $actual"
@@ -172,6 +187,7 @@ jobs:
           done
 
       - name: Upload Android arm64-v8a APK
+        if: env.PUBLISH_SIGNED_BUILD == 'true'
         uses: actions/upload-artifact@v7
         with:
           archive: false
@@ -180,6 +196,7 @@ jobs:
           retention-days: 1
 
       - name: Publish GitHub Release
+        if: env.PUBLISH_SIGNED_BUILD == 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
