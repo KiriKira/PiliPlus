@@ -4,16 +4,17 @@ param(
 
 try {
     $CustomizationsPatch = 'lib/scripts/piliplus_foldable_customizations.patch'
-    git apply --check $CustomizationsPatch 2>$null
+    git apply --check --verbose $CustomizationsPatch
     if ($LASTEXITCODE -eq 0) {
-        git apply $CustomizationsPatch
+        git apply --verbose $CustomizationsPatch
         if ($LASTEXITCODE -ne 0) {
             throw "failed to apply $CustomizationsPatch"
         }
         Write-Host "$CustomizationsPatch applied"
     }
     else {
-        git apply --reverse --check $CustomizationsPatch 2>$null
+        Write-Host "Forward patch check failed; checking whether it is already applied"
+        git apply --reverse --check --verbose $CustomizationsPatch
         if ($LASTEXITCODE -eq 0) {
             Write-Host "$CustomizationsPatch already applied"
         }
