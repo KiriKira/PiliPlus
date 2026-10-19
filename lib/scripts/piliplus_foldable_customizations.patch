@@ -1,0 +1,61 @@
+diff --git a/lib/pages/setting/models/play_settings.dart b/lib/pages/setting/models/play_settings.dart
+--- a/lib/pages/setting/models/play_settings.dart
++++ b/lib/pages/setting/models/play_settings.dart
+@@ -32,4 +32,11 @@
+     setKey: SettingBoxKey.enableShowDanmaku,
+     defaultVal: true,
+   ),
++  const SwitchModel(
++    title: '视频详情页弹幕快捷操作',
++    subtitle: '显示 Tab 栏右侧的“发弹幕”和弹幕开关图标',
++    leading: Icon(CustomIcons.dm_on),
++    setKey: SettingBoxKey.showVideoDetailDanmakuControls,
++    defaultVal: true,
++  ),
+   if (PlatformUtils.isMobile)
+diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
+--- a/lib/pages/video/view.dart
++++ b/lib/pages/video/view.dart
+@@ -71,3 +71,4 @@
+ import 'package:PiliPlus/utils/storage.dart';
+ import 'package:PiliPlus/utils/storage_key.dart';
++import 'package:PiliPlus/utils/storage_pref.dart';
+ import 'package:PiliPlus/utils/theme_utils.dart';
+@@ -1403,4 +1404,5 @@
+                 ),
+               ),
++            if (Pref.showVideoDetailDanmakuControls)
+             SizedBox(
+               height: 32,
+@@ -1419,4 +1421,5 @@
+               ),
+             ),
++            if (Pref.showVideoDetailDanmakuControls)
+             SizedBox.square(
+               dimension: 38,
+@@ -1449,4 +1452,5 @@
+               ),
+             ),
++            if (Pref.showVideoDetailDanmakuControls)
+             const SizedBox(width: 14),
+           ],
+diff --git a/lib/utils/storage_key.dart b/lib/utils/storage_key.dart
+--- a/lib/utils/storage_key.dart
++++ b/lib/utils/storage_key.dart
+@@ -121,2 +121,3 @@
+       showFSActionItem = 'showFSActionItem',
++      showVideoDetailDanmakuControls = 'showVideoDetailDanmakuControls',
+       enableShrinkVideoSize = 'enableShrinkVideoSize',
+diff --git a/lib/utils/storage_pref.dart b/lib/utils/storage_pref.dart
+--- a/lib/utils/storage_pref.dart
++++ b/lib/utils/storage_pref.dart
+@@ -537,4 +537,9 @@
+   static bool get showFSActionItem =>
+       _setting.get(SettingBoxKey.showFSActionItem, defaultValue: true);
+ 
++  static bool get showVideoDetailDanmakuControls => _setting.get(
++    SettingBoxKey.showVideoDetailDanmakuControls,
++    defaultValue: true,
++  );
++
+   static bool get enableShrinkVideoSize =>
