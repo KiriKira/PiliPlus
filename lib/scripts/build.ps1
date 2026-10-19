@@ -3,9 +3,32 @@ param(
 )
 
 try {
+    $CustomizationsPatch = 'lib/scripts/piliplus_foldable_customizations.patch'
+    git apply --check $CustomizationsPatch 2>$null
+    if ($LASTEXITCODE -eq 0) {
+        git apply $CustomizationsPatch
+        if ($LASTEXITCODE -ne 0) {
+            throw "failed to apply $CustomizationsPatch"
+        }
+        Write-Host "$CustomizationsPatch applied"
+    }
+    else {
+        git apply --reverse --check $CustomizationsPatch 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "$CustomizationsPatch already applied"
+        }
+        else {
+            throw "$CustomizationsPatch does not apply cleanly"
+        }
+    }
+
     $versionName = $null
 
-    $versionCode = [int](git rev-list --count HEAD).Trim()
+    $versionCode = if ($env:PILI_VERSION_CODE) {
+        [int]$env:PILI_VERSION_CODE
+    } else {
+        [int](git rev-list --count HEAD).Trim()
+    }
 
     $commitHash = (git rev-parse HEAD).Trim()
 
