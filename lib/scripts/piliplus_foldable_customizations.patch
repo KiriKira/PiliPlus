@@ -21,7 +21,7 @@ diff --git a/lib/pages/video/view.dart b/lib/pages/video/view.dart
  import 'package:PiliPlus/utils/storage_key.dart';
 +import 'package:PiliPlus/utils/storage_pref.dart';
  import 'package:PiliPlus/utils/theme_utils.dart';
-@@ -1392,58 +1393,64 @@
+@@ -1394,58 +1395,64 @@
                const Spacer()
              else
                Expanded(
